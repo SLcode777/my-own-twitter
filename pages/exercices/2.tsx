@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import { Error } from '~/components/Error';
 import { Loader } from '~/components/Loader';
 import { useUser } from '~/hooks/UserProvider';
-import { client } from '~/lib/client/client';
+ { client } from '~/lib/client/client';import
 import { TweetsScheme } from '~/lib/scheme/tweets';
 import { tweetKeys } from '~/lib/tweets/query.tweet';
 import { AddTweetForm } from '../../src/components/tweets/AddTweetForm';
@@ -53,9 +53,7 @@ const AddTweet = ({ tweetId }: AddTweetProps) => {
   return <AddTweetForm disabled={mutation.isLoading} onSubmit={handleSubmit} />;
 };
 
-// type FetchAllTweetsProps = {
-//   page: number;
-// };
+
 
 export default function FetchAllTweets() {
   const {

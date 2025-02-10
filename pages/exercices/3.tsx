@@ -1,9 +1,13 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { Error } from '~/components/Error';
 import { Loader } from '~/components/Loader';
 import { AddTweet } from '~/components/tweets/AddTweet';
 import { TweetsNextButton } from '~/components/tweets/TweetsNextButton';
-import { useInfiniteTweets } from '~/lib/tweets/query.tweet';
+import { useUser } from '~/hooks/UserProvider';
+import { client } from '~/lib/client/client';
+import type { TlTweetsPage } from '~/lib/scheme/tweets';
+import { tweetKeys, useInfiniteTweets } from '~/lib/tweets/query.tweet';
 import { LikeButton } from '../../src/components/tweets/LikeButton';
 import { RepliesButton } from '../../src/components/tweets/RepliesButton';
 import { Tweet } from '../../src/components/tweets/Tweet';
@@ -54,12 +58,15 @@ export default function OptimisticUpdate() {
 
 const notifyFailed = () => toast.error("Couldn't like tweet");
 
-const likeTweet = async (tweetId: string, liked: boolean) => {
-  // 🦁 Utilise `client` pour faire un appel à l'API
-  // url : `/api/tweets/${tweetId}/like`
-  // la method sera DELETE si liked est true, POST sinon
-  // data : { userId }
-  return 'todo';
+const likeTweet = async (
+  tweetId: string,
+  liked: boolean
+  // userId: string
+): Promise<Response> => {
+  return client(`/api/tweets/${tweetId}/like`, {
+    method: liked ? 'DELETE' : 'POST',
+    // data: { userId },
+  });
 };
 
 type LikeUpdateProps = {
@@ -69,22 +76,70 @@ type LikeUpdateProps = {
 };
 
 const Like = ({ count, liked, tweetId }: LikeUpdateProps) => {
-  // 🦁 Créer un state isLoading
-  // 🦁 Utilise useQueryClient
+  const queryClient = useQueryClient();
+  const { user } = useUser();
 
-  // 🦁 Ajoute la fonction onClick
-  // * mettre isLoading à true
-  // * utiliser la fonction likeTweet
-  // * si c'est un succès (`.then`) : invalider la query des tweets (tu pourras trouver la clé dans [query.tweet.ts](src/lib/tweets/query.tweet.ts) et l'importer)
-  // * si c'est un échec (`.catch`) : afficher un message d'erreur
-  // * finalement (`.finally`) on va définir le state `isLoading` à false et le mettre à true pendant
+  const mutation = useMutation(() => likeTweet(tweetId, liked), {
+    onMutate: async () => {
+      void queryClient.cancelQueries({
+        queryKey: tweetKeys.all,
+      });
+
+      const previousValue = queryClient.getQueriesData(tweetKeys.all);
+
+      queryClient.setQueryData(
+        tweetKeys.all,
+        (old?: { pages: TlTweetsPage[] }) => {
+          // S'il n'y a pas de données, on fait rien !
+          if (!old) {
+            return old;
+          }
+
+          return {
+            pages: old.pages.map((page) => {
+              return {
+                ...page,
+                tweets: page.tweets.map((tweet) => {
+                  if (tweet.id !== tweetId) {
+                    return tweet;
+                  }
+
+                  return {
+                    ...tweet,
+                    liked: !liked,
+                    _count: {
+                      ...tweet._count,
+                      likes: tweet._count.likes + (liked ? -1 : 1),
+                    },
+                  };
+                }),
+              };
+            }),
+          };
+        }
+      );
+
+      return { previousValue };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: tweetKeys.all,
+        refetchPage: (lastPage: TlTweetsPage) => {
+          return lastPage.tweets.some((tweet) => tweet.id == tweetId);
+        },
+      });
+    },
+    onError: (err, variables, context) => {
+      queryClient.setQueriesData(tweetKeys.all, context?.previousValue);
+      notifyFailed();
+    },
+  });
 
   return (
     <LikeButton
       count={count}
-      onClick={() => {
-        // 🦁 Appelle la fonction onClick
-      }}
+      disabled={!user || mutation.isLoading}
+      onClick={() => mutation.mutate()}
       liked={liked}
     />
   );
