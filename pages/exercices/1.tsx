@@ -22,9 +22,16 @@ const TweetsScheme = z.object({
       createdAt: z.string().datetime(),
       user: z.object({
         id: z.string(),
-        displayName: z.string().nullable().default(null),
+        displayName: z
+          .string()
+          .nullable()
+          .transform((val) => val ?? null),
         username: z.string(),
-        avatarUrl: z.string().url().nullable().default(null),
+        avatarUrl: z
+          .string()
+          .url()
+          .nullable()
+          .transform((val) => val ?? null),
       }),
       likes: z.array(z.string()),
       _count: z.object({
@@ -36,35 +43,96 @@ const TweetsScheme = z.object({
   ),
 });
 
+// Dans ClientConfig on récupère le params T
+export type ClientConfig<T> = {
+  data?: unknown;
+  // On utilise T dans le zod schema
+  // Ce qui va faire que notre fetch va être automatiquement être typé en fonction du schéma
+  zodSchema?: z.ZodSchema<T>;
+  method?: 'DELETE' | 'GET' | 'OPTIONS' | 'PATCH' | 'POST' | 'PUT';
+  headers?: HeadersInit;
+  // Pour pouvoir override la config
+  customConfig?: RequestInit;
+  signal?: AbortSignal;
+};
+
+// On utilise un générique ici pour automatiquement typer le retour de la fonction
+export async function client<T>(
+  url: string,
+  {
+    data,
+    zodSchema,
+    method,
+    headers: customHeaders,
+    signal,
+    customConfig,
+  }: ClientConfig<T> = {} // On passe T en paramètre de ClientConfig
+): Promise<T> {
+  // On retourne Promise<T> pour que le type soit automatiquement déduit
+  const config: RequestInit = {
+    // S'il n'y a pas de method on utilise POST s'il y a des données et GET sinon
+    method: method ?? (data ? 'POST' : 'GET'),
+    // On stringify les données s'il y en a
+    body: data ? JSON.stringify(data) : null,
+    headers: {
+      'Content-Type': data ? 'application/json' : '',
+      Accept: 'application/json',
+      // Mais on laisse l'utilisateur override les headers
+      ...customHeaders,
+    },
+    signal,
+    // On laisse l'utilisateur override la config
+    // S'il passe body, method, headers, etc... on les écrasera
+    ...customConfig,
+  };
+
+  return window.fetch(url, config).then(async (response) => {
+    // on gère le status 401 en arrêtant directement la request
+    if (response.status === 401) {
+      return Promise.reject(new Error("You're not authenticated"));
+    }
+
+    let result = null;
+    // 🦁 à toi de parse le json dans un try catch
+    try {
+      result = response.status == 204 ? null : await response.json();
+    } catch (error: unknown) {
+      return Promise.reject(error);
+    }
+
+    if (response.ok) {
+      // 🦁 s'il y a un `zodSchema`, on parse `result` sinon on retourne `result`
+      return zodSchema && result ? zodSchema.parse(result) : result;
+    } else {
+      // 🦁 on reject la promesse avec le `result`
+      return Promise.reject(result);
+    }
+  });
+}
+
+const getTweets = async (signal: AbortSignal) =>
+  client(`/api/tweets`, {
+    signal,
+    zodSchema: TweetsScheme,
+  });
+// .then((res) => res.json())
+// .then((data) => TweetsScheme.parse(data));
+
 export default function FetchAllTweets() {
   const [tweets, setTweets] = useState<TlTweets | null>(null);
 
   useEffect(() => {
-    // 🦁 Créer un abort controller pour annuler la requête si l'utilisateur quitte la page
-
     const controller = new AbortController();
-    const signal = controller.signal;
 
-    // 🦁 Passer le signal à la requête fetch
-    fetch('/api/tweets', { signal }) // ℹ️ tu peux remplacer l'url par `/api/tweets?error=erreur` pour voir le problème
-      .then((res) => res.json())
+    getTweets(controller.signal)
       .then((data) => {
-        // 🦁 Utiliser le schéma TweetsScheme pour valider la réponse de l'API
-        const parsed = TweetsScheme.safeParse(data);
-
-        if (!parsed.success) {
-          console.error('Erreur de validation Zod:', parsed.error);
-          notifyFailed();
-          return;
-        }
-
-        setTweets(parsed.data.tweets);
+        setTweets(data.tweets);
       })
-      .catch((error) => {
-        if (error.name !== 'AbortError') {
-          console.error('Erreur Fetch', error);
-          notifyFailed(); // 🦁 Ajouter un catch pour gérer les erreurs
-        }
+      .catch((err) => {
+        if (err.name == 'AbortError') return;
+
+        setTweets([]);
+        notifyFailed();
       });
 
     // 🦁 Créer la cleanup fonction qui annule la requête
