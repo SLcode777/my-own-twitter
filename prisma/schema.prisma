@@ -16,45 +16,39 @@ model User {
   location      String?
   email         String            @unique
   tweets        Tweet[]
-  followers     UserFollowsUser[] @relation(name: "Followers")
-  following     UserFollowsUser[] @relation(name: "Following")
   TweetsOnLikes TweetsOnLikes[]
+  following     UserFollowsUser[] @relation("Following")
+  followers     UserFollowsUser[] @relation("Followers")
 }
 
 model UserFollowsUser {
-  id String @id @default(cuid())
-
-  follower   User   @relation(fields: [followerId], references: [id], name: "Followers")
-  followerId String
-
-  following   User   @relation(fields: [followingId], references: [id], name: "Following")
+  id          String @id @default(cuid())
+  followerId  String
   followingId String
+  following   User   @relation("Following", fields: [followingId], references: [id])
+  follower    User   @relation("Followers", fields: [followerId], references: [id])
 
   @@unique([followerId, followingId])
 }
 
 model Tweet {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   content   String
-  createdAt DateTime @default(now())
-  parent    Tweet?   @relation(name: "Replies", fields: [tweetId], references: [id])
-  replies   Tweet[]  @relation(name: "Replies")
-
-  user    User    @relation(fields: [userId], references: [id])
-  userId  String
-  tweetId String?
-
-  likes TweetsOnLikes[]
+  createdAt DateTime        @default(now())
+  userId    String
+  tweetId   String?
+  user      User            @relation(fields: [userId], references: [id])
+  parent    Tweet?          @relation("Replies", fields: [tweetId], references: [id])
+  replies   Tweet[]         @relation("Replies")
+  likes     TweetsOnLikes[]
 }
 
 model TweetsOnLikes {
-  id String @id @default(cuid())
-
-  tweet   Tweet  @relation(fields: [tweetId], references: [id])
+  id      String @id @default(cuid())
   tweetId String
-
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  tweet   Tweet  @relation(fields: [tweetId], references: [id])
 
   @@unique([tweetId, userId])
 }
